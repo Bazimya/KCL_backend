@@ -2,9 +2,12 @@
 // Populates coffee machines (from PDF), KCL drink menu, default users and settings.
 const dotenv = require('dotenv').config()
 const slugify = require('slugify')
-const CryptoJS = require('crypto-js')
+const { hashPassword } = require('./utils/password')
 const { prisma, connectDb } = require('./config/dbConnection')
 const { allPermissions } = require('./utils/permissions')
+const isProduction = process.env.NODE_ENV === 'production'
+const adminEmail = isProduction ? process.env.INITIAL_ADMIN_EMAIL : 'admin@kigalicoffeelab.com'
+const adminPassword = isProduction ? process.env.INITIAL_ADMIN_PASSWORD : 'Admin@123'
 
 const placeholder = (name, bg='2c1810', fg='f5ede4') =>
     `https://placehold.co/600x600/${bg}/${fg}?text=${encodeURIComponent(name)}`
@@ -68,6 +71,10 @@ const tables = [
 ]
 
 const run = async () => {
+    if (isProduction && (!adminEmail || !adminPassword || adminPassword.length < 16)) {
+        throw new Error('Production seeding requires INITIAL_ADMIN_EMAIL and INITIAL_ADMIN_PASSWORD (at least 16 characters)')
+    }
+
     await connectDb()
 
     // Settings singleton
@@ -78,19 +85,25 @@ const run = async () => {
     }
 
     // Default Admin
-    let admin = await prisma.user.findUnique({ where: { email: 'admin@kigalicoffeelab.com' } })
+    let admin = await prisma.user.findUnique({ where: { email: adminEmail } })
     if (!admin) {
         admin = await prisma.user.create({
             data: {
                 username: 'kcl_admin',
-                email: 'admin@kigalicoffeelab.com',
-                password: CryptoJS.AES.encrypt('Admin@123', process.env.PASSWORD_KEY).toString(),
+                email: adminEmail,
+                password: await hashPassword(adminPassword),
                 role: 'admin',
                 isAdmin: true,
                 permissions: allPermissions,
             },
         })
-        console.log('Created default admin -> admin@kigalicoffeelab.com / Admin@123')
+        console.log(`Created admin account -> ${adminEmail}`)
+    }
+
+    if (isProduction) {
+        console.log('Production bootstrap complete; demo manager and catalog data were not seeded')
+        await prisma.$disconnect()
+        return
     }
 
     // Default Manager (limited permissions example)
@@ -100,7 +113,7 @@ const run = async () => {
             data: {
                 username: 'kcl_manager',
                 email: 'manager@kigalicoffeelab.rw',
-                password: CryptoJS.AES.encrypt('Manager@123', process.env.PASSWORD_KEY).toString(),
+                password: await hashPassword('Manager@123'),
                 role: 'manager',
                 isAdmin: false,
                 permissions: {
@@ -202,7 +215,6 @@ const run = async () => {
 
     console.log('Seeding complete ✅')
     await prisma.$disconnect()
-    process.exit(0)
 }
 
-run().catch(async (e)=>{ console.error(e); await prisma.$disconnect(); process.exit(1) })
+run().catch(async (e)=>{ console.error(e); await prisma.$disconnect(); process.exitCode = 1 })

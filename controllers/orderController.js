@@ -1,10 +1,13 @@
 const asyncHandler = require('express-async-handler')
 const uniqid = require('uniqid')
+const fs = require('fs')
+const path = require('path')
 const { prisma } = require('../config/dbConnection')
 const { toClientJSON } = require('../utils/transform')
 const { getPagination, buildPageResult } = require('../utils/paginate')
 const { codeFromOrderId } = require('../utils/orderCode')
 const { INITIAL_STATUS, isValidStatus, stagesFor } = require('../utils/orderStages')
+const { uploadsDir } = require('../config/uploads')
 
 const ORDER_INCLUDE = { products: true, table: true }
 
@@ -263,6 +266,43 @@ uploadProof = asyncHandler(async(req,res)=>{
     res.status(200).json(toClientJSON(updated))
 })
 
+viewProof = asyncHandler(async (req, res) => {
+    const order = await prisma.order.findUnique({ where: { id: Number(req.params.id) } })
+    if (!order) { res.status(404); throw new Error('Order not found') }
+    if (!order.proofOfPayment?.startsWith('/uploads/proofs/')) {
+        res.status(404)
+        throw new Error('Proof of payment not found')
+    }
+
+    const proofPath = path.join(uploadsDir, 'proofs', path.basename(order.proofOfPayment))
+    if (!fs.existsSync(proofPath)) {
+        res.status(404)
+        throw new Error('Proof of payment file not found')
+    }
+
+    res.set('Cache-Control', 'private, no-store')
+    res.sendFile(proofPath)
+})
+
+uploadProofForUser = asyncHandler(async (req, res) => {
+    const order = await prisma.order.findUnique({ where: { id: Number(req.params.id) } })
+    if (!order) { res.status(404); throw new Error('Order not found') }
+    if (String(order.orderById) !== String(req.user._id)) {
+        res.status(403)
+        throw new Error('Not your order')
+    }
+    if (!req.file) { res.status(400); throw new Error('No file uploaded') }
+
+    const updated = await prisma.order.update({
+        where: { id: order.id },
+        data: {
+            proofOfPayment: `/uploads/proofs/${req.file.filename}`,
+            paymentStatus: 'Proof Submitted',
+        },
+    })
+    res.status(200).json(toClientJSON(updated))
+})
+
 // Public - a guest uploads proof of payment for their own order using its
 // public orderCode. No login required: this is the endpoint the app and
 // website actually call after checkout (uploadProof above requires a staff
@@ -419,6 +459,6 @@ getOrderStats = asyncHandler(async (req, res) => {
 
 module.exports = {
     createOrder, trackOrder, cancelByCode,
-    uploadProof, uploadProofByCode, getOrders, getOrder, getUserOrders,
+    uploadProof, uploadProofForUser, viewProof, uploadProofByCode, getOrders, getOrder, getUserOrders,
     cancelOrder, deleteOrder, updateOrderStatus, getOrderStats,
 }

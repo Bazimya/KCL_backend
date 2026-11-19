@@ -1,0 +1,45 @@
+# nginx site for Kigali Coffee Lab. deploy/setup-vps.sh fills in the two
+# domains and installs this as /etc/nginx/sites-available/kcl; certbot then
+# adds the HTTPS (443) blocks and the http -> https redirect.
+
+# ---- Frontend (static React build) ----
+server {
+    listen 80;
+    listen [::]:80;
+    server_name __APP_DOMAIN__;
+
+    root /var/www/kcl;
+    index index.html;
+
+    # Hashed build assets never change - cache them for a year.
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        try_files $uri =404;
+    }
+
+    # SPA fallback: /t/<qrToken>, /admin/orders etc. all serve index.html.
+    location / {
+        add_header Cache-Control "no-cache";
+        try_files $uri $uri/ /index.html;
+    }
+}
+
+# ---- API (Node on 127.0.0.1:5050, managed by pm2) ----
+server {
+    listen 80;
+    listen [::]:80;
+    server_name __API_DOMAIN__;
+
+    # Product create/update accepts 1 image + 5 gallery images, 5 MB each.
+    client_max_body_size 40m;
+
+    location / {
+        proxy_pass http://127.0.0.1:5050;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+    }
+}

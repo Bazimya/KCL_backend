@@ -7,7 +7,13 @@ const notFound = (req,res,next)=>{
 const errorHandler = (err,req,res,next)=>{
     const statusCode = res.statusCode == 200 ? 500 : res.statusCode
     res.status(statusCode)
-    res.json({msg: err?.message, stack: err?.stack})
+    if (statusCode >= 500) console.error(err)
+    const message = statusCode >= 500 && process.env.NODE_ENV === 'production'
+        ? 'Internal server error'
+        : err?.message || 'Internal server error'
+    const response = { msg: message }
+    if (process.env.NODE_ENV !== 'production') response.stack = err?.stack
+    res.json(response)
 }
 
 module.exports = { notFound, errorHandler }

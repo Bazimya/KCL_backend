@@ -1,5 +1,5 @@
 const asyncHandler = require('express-async-handler')
-const CryptoJS = require('crypto-js')
+const { hashPassword, verifyPassword } = require('../utils/password')
 const jwt = require('jsonwebtoken')
 const { prisma } = require('../config/dbConnection')
 const { toClientJSON } = require('../utils/transform')
@@ -24,7 +24,7 @@ userRegister = asyncHandler(async(req,res)=>{
         res.status(400)
         throw new Error('Email Taken')
     }
-    const hashedPassword = CryptoJS.AES.encrypt(password, process.env.PASSWORD_KEY).toString()
+    const hashedPassword = await hashPassword(password)
     const user = await prisma.user.create({
         data: {
             username, email, password: hashedPassword, phone,
@@ -52,10 +52,14 @@ loginUser = asyncHandler(async(req,res)=>{
         res.status(403)
         throw new Error('This account has been deactivated. Please contact the Coffee Lab.')
     }
-    const decryptedPassword = CryptoJS.AES.decrypt(user.password, process.env.PASSWORD_KEY).toString(CryptoJS.enc.Utf8)
-    if (decryptedPassword!=password){
+    const { ok, needsRehash } = await verifyPassword(password, user.password)
+    if (!ok){
         res.status(400)
         throw new Error('Invalid Password')
+    }
+    if (needsRehash){
+        // one-time upgrade of a legacy AES-encrypted password to bcrypt
+        await prisma.user.update({ where: { id: user.id }, data: { password: await hashPassword(password) } })
     }
     const accessToken = jwt.sign({
         _id: user.id,

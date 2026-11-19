@@ -24,7 +24,10 @@ function copyRecursive(source, destination) {
   });
 
   for (const entry of entries) {
-    if (EXCLUDED.has(entry.name)) {
+    if (
+      EXCLUDED.has(entry.name) ||
+      (source === path.join(ROOT, "uploads") && entry.name === "proofs")
+    ) {
       continue;
     }
 

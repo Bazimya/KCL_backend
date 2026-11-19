@@ -1,5 +1,5 @@
 const asyncHandler = require('express-async-handler')
-const CryptoJS = require('crypto-js')
+const { hashPassword } = require('../utils/password')
 const { prisma } = require('../config/dbConnection')
 const { toClientJSON } = require('../utils/transform')
 const { getPagination, buildPageResult } = require('../utils/paginate')
@@ -62,7 +62,7 @@ updateUser = asyncHandler(async(req,res)=>{
     if (phone !== undefined) data.phone = phone
     if (address !== undefined) data.address = address
     if (password){
-        data.password = CryptoJS.AES.encrypt(password, process.env.PASSWORD_KEY).toString()
+        data.password = await hashPassword(password)
     }
 
     const updated = await prisma.user.update({ where: { id: userAvailable.id }, data, select: userSelectNoPassword })
@@ -115,7 +115,7 @@ createStaff = asyncHandler(async(req,res)=>{
     const emailAvailable = await prisma.user.findUnique({ where: { email } })
     if (emailAvailable){ res.status(400); throw new Error('Email Taken') }
 
-    const hashedPassword = CryptoJS.AES.encrypt(password, process.env.PASSWORD_KEY).toString()
+    const hashedPassword = await hashPassword(password)
     const user = await prisma.user.create({
         data: {
             username, email, phone,

@@ -18,7 +18,7 @@ needed), staff order management, and notifications.
 
 2. Install dependencies and configure environment:
    ```bash
-   npm install               # also runs `prisma generate` via postinstall
+   npm install               # also runs `prisma generate` via postinstall (Node 20.9+)
    cp .env_example .env      # fill in DATABASE_URL, PASSWORD_KEY, JWT_KEY
    ```
    `DATABASE_URL` is the only DB setting Prisma reads, in the form
@@ -43,6 +43,93 @@ Useful Prisma commands (also available as `npm run prisma:*` scripts):
 `npx prisma studio` (a GUI to browse/edit data), `npx prisma generate`
 (regenerate the client after editing `schema.prisma`).
 
+## Production deployment
+
+### Quick start: one Ubuntu VPS (recommended)
+
+`deploy/` sets up everything on a fresh Ubuntu 22.04/24.04 server: Node 20 +
+pm2, MySQL, nginx (frontend + API), Let's Encrypt HTTPS, firewall and nightly
+backups. Secrets are generated on the server and never committed.
+
+1. Buy the domain and point two DNS **A records** at the server's IP:
+   the site (e.g. `kigalicoffeelab.com`) and the API (e.g. `api.kigalicoffeelab.com`).
+2. On the server, as root:
+   ```bash
+   curl -fsSLO https://raw.githubusercontent.com/Bazimya/KCL_backend/main/deploy/setup-vps.sh
+   sudo APP_DOMAIN=kigalicoffeelab.com API_DOMAIN=api.kigalicoffeelab.com \
+        LETSENCRYPT_EMAIL=you@example.com \
+        INITIAL_ADMIN_EMAIL=admin@kigalicoffeelab.com \
+        INITIAL_ADMIN_PASSWORD='a-unique-password-16+chars' \
+        bash setup-vps.sh
+   ```
+   Private repos: add the server's SSH key as a GitHub deploy key and pass
+   `BACKEND_REPO=git@github.com:Bazimya/KCL_backend.git FRONTEND_REPO=...`.
+   DNS not ready yet: add `SKIP_TLS=1`, then re-run without it later.
+3. Ship updates: `sudo -iu kcl /srv/kcl/KCL_backend/deploy/deploy.sh`
+4. Copy `/var/backups/kcl` and `/srv/kcl/KCL_backend/.env` somewhere off the
+   server regularly.
+
+| File | Purpose |
+|------|---------|
+| `deploy/setup-vps.sh` | one-time (re-runnable) server setup |
+| `deploy/deploy.sh` | pull, install, migrate, restart API, rebuild frontend |
+| `deploy/ecosystem.config.js` | pm2 process definition |
+| `deploy/nginx-kcl.conf.template` | nginx site (SPA fallback, API reverse proxy) |
+| `deploy/backup.sh` | nightly MySQL dump + uploads archive, 14 days kept |
+
+### Any other host
+
+Requires **Node.js 20.9+** (needed by `sharp`) and a MySQL 5.7+/8 database.
+
+1. **Install:** `npm ci` (Prisma is a regular dependency, so `npm ci --omit=dev`
+   also works; `postinstall` runs `prisma generate`).
+2. **Environment** (set in the host's dashboard, not in a committed file):
+   - `NODE_ENV=production`
+   - `DATABASE_URL=mysql://USER:PASSWORD@HOST:PORT/DATABASE`
+   - `JWT_KEY` - generate with `openssl rand -hex 32` (32+ chars, no placeholder words)
+   - `PASSWORD_KEY` - only needed if the database already has accounts from
+     before the bcrypt switch; keep the **same** value they were created with.
+     Those accounts are re-hashed with bcrypt on their next login.
+   - `FRONTEND_URL` - exact frontend origin(s), comma-separated, e.g.
+     `https://kigalicoffeelab.com,https://www.kigalicoffeelab.com`
+   - `PUBLIC_APP_URL` (optional) - origin printed into table QR stickers;
+     defaults to the first `FRONTEND_URL` origin.
+   - `UPLOADS_DIR` - a **persistent** volume path (see below).
+   - `PORT` - most hosts set this for you.
+   - `TRUST_PROXY` (optional) - proxy hops in front of the API, default `1`.
+3. **Migrate** before each start/release: `npm run release`
+   (= `prisma migrate deploy`). Never run `prisma migrate dev` in production.
+4. **Start:** `npm start` (= `node server.js`; there is no build step).
+5. **First admin:** set `INITIAL_ADMIN_EMAIL` and a unique
+   `INITIAL_ADMIN_PASSWORD` (16+ chars), run `npm run seed` once with
+   `NODE_ENV=production`, then remove the password from the host. Production
+   seeding creates settings and that admin only - no demo data. Never run the
+   seed without `NODE_ENV=production` on a real database (it creates the demo
+   accounts below).
+
+Typical host settings (Render / Railway / a VPS with pm2):
+`Build command: npm ci` · `Pre-deploy/Release: npm run release` · `Start: npm start`.
+
+**Uploads.** Images and payment proofs are written to `UPLOADS_DIR`. On hosts
+with ephemeral disks (Render, Railway, Heroku without a volume) they vanish on
+every redeploy - attach a persistent disk and point `UPLOADS_DIR` at it. The
+sample images committed under `uploads/` must be copied into that volume once
+(`cp -r uploads/products uploads/drinks uploads/staff "$UPLOADS_DIR"/`).
+Payment proofs are never served publicly; staff view them through the
+authenticated orders API.
+
+**Security built in:** bcrypt password hashing, `helmet` security headers,
+rate limiting on `/auth` (failed attempts only, `AUTH_RATE_LIMIT` per 15 min),
+CORS restricted to `FRONTEND_URL`, and generic 500 messages in production.
+
+**Existing databases:** migration `20261003151700_add_bookings_training_history`
+adds `tables.qrToken` as `NOT NULL` with no default. It applies cleanly to an
+empty database; if you are migrating a database that already has rows in
+`tables`, back up first and fill the column before applying it.
+
+The frontend is built separately - set `VITE_API_URL` (and optionally
+`VITE_UPLOADS_URL`) to this API's public origin; see the frontend README.
+
 ## Seed demo data (coffee machines, menu items, tables, admin/manager users)
 
 ```bash
@@ -50,15 +137,16 @@ npm run seed
 # or: node seed.js
 ```
 
-Default accounts created by the seed script:
+Default accounts created by the seed script in development:
 
 | Role    | Email                          | Password     |
 |---------|---------------------------------|--------------|
-| Admin   | admin@kigalicoffeelab.com        | Admin@12345   |
-| Manager | manager@kigalicoffeelab.rw      | Manager@123  |
+| Admin   | admin@kigalicoffeelab.com        | Admin@123     |
+| Manager | manager@kigalicoffeelab.rw      | Manager@123   |
 
-**Change these passwords immediately in production.** These accounts are
-**staff-only** - customers never register or log in (see below).
+These demo accounts are for local development only. Production bootstrap
+requires a unique admin email and password from environment variables, and
+does not create the demo manager account.
 
 ## How ordering works
 
@@ -155,13 +243,16 @@ way out in `utils/transform.js`.
 - `GET /tables` (public) · staff CRUD at `POST/PUT/DELETE /tables`
 - `POST /orders` (guest-friendly, no login) · `GET /orders/track/:code` (public)
   · `PUT /orders/track/:code/cancel` (public, guest self-cancel while still `Order Placed`)
-  · staff: `GET /orders`, `GET /orders/:id`, `PUT /orders/:id { status }`, `DELETE /orders/:id`
+  · staff: `GET /orders`, `GET /orders/:id`, `GET /orders/:id/proof`,
+  `PUT /orders/:id { status }`, `DELETE /orders/:id`
 - `GET /notifications/:code` (public) · `PUT /notifications/:id/read` · `PUT /notifications/:code/read-all`
 - `GET /settings/public` (payment toggles + MoMo details) · staff: `GET/PUT /settings`
 - `GET /dashboard` (staff, `viewDashboard` permission)
 - `POST /auth/login` (staff only) · `POST /users/staff` (admin creates manager/admin accounts)
 
-Uploaded images are served statically from `/uploads/...`.
+Product, drink, and staff-story images are served publicly from `/uploads/...`.
+Payment proofs are not served from the public uploads path; authorized staff
+view them through the orders API.
 
 ## Verified this session
 

@@ -1,6 +1,6 @@
 const {
     createOrder, trackOrder, cancelByCode,
-    uploadProof, uploadProofByCode, getOrders, getOrder, getUserOrders,
+    uploadProof, uploadProofForUser, viewProof, uploadProofByCode, getOrders, getOrder, getUserOrders,
     cancelOrder, deleteOrder, updateOrderStatus, getOrderStats,
 } = require('../controllers/orderController')
 const { validateToken, StaffAuth, optionalAuth } = require('../middlewares/validateTokenHandler')
@@ -15,7 +15,9 @@ router.put('/track/:code/cancel', cancelByCode)
 router.post('/track/:code/proof', uploadProofMw.single('proof'), uploadProofByCode)
 
 // Logged-in users can still see their own order history if they have an account
+router.post('/user-orders/:id/proof', validateToken, uploadProofMw.single('proof'), uploadProofForUser)
 router.get('/user-orders', validateToken, getUserOrders)
+router.get('/:id/proof', StaffAuth('manageOrders'), viewProof)
 router.put('/:id/cancel', validateToken, cancelOrder)
 
 // Staff (manageOrders permission)

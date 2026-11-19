@@ -1,5 +1,6 @@
 /.phpunit.cache
 /node_modules
+/dist
 /public/build
 /public/hot
 /public/storage
@@ -8,6 +9,7 @@
 .env
 .env.backup
 .env.production
+/uploads/proofs/
 .phpunit.result.cache
 Homestead.json
 Homestead.yaml
