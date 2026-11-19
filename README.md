@@ -1,5 +1,7 @@
 # Kigali Coffee Lab (KCL) Backend
 
+GitHub repository: `KCL_backend`.
+
 Node.js + Express + **MySQL** (via **Prisma**) API powering the KCL app: the
 coffee/food menu, coffee-machine catalog, tables, guest ordering (no account
 needed), staff order management, and notifications.
