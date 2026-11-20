@@ -151,7 +151,7 @@ const withRuleStatus = async (res, fn) => {
 getAvailability = asyncHandler(async (req, res) => {
     const start = new Date(req.query.start)
     const durationMinutes = toNumber(req.query.duration) || 60
-    await withRuleStatus(res, async () => validateRequest({ start, durationMinutes, forStaff: true }))
+    await withRuleStatus(res, async () => validateRequest({ start, durationMinutes, forStaff: true, enforceHours: true }))
     const end = new Date(start.getTime() + durationMinutes * 60000)
     const tables = await prisma.table.findMany({ where: { active: true }, orderBy: { label: 'asc' } })
     const ids = tables.map((t) => t.id)
@@ -165,6 +165,8 @@ getAvailability = asyncHandler(async (req, res) => {
             reason: booked.has(t.id) ? 'booked' : inUse.has(t.id) ? 'in_use' : null,
         })),
         rules: {
+            openingHour: RULES.OPENING_HOUR,
+            closingHour: RULES.CLOSING_HOUR,
             minLeadMinutes: RULES.MIN_LEAD_MINUTES,
             maxAdvanceDays: RULES.MAX_ADVANCE_DAYS,
             minDurationMinutes: RULES.MIN_DURATION_MINUTES,
