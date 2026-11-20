@@ -1,4 +1,5 @@
 const asyncHandler = require('express-async-handler')
+const { nextBookingForWalkIn } = require('../utils/bookingRules')
 const { notifySms } = require('../utils/sms')
 const { publicAppUrl } = require('../utils/appUrl')
 const { normalizePhone, phoneSearchTail } = require('../utils/phone')
@@ -164,22 +165,10 @@ createOrder = asyncHandler(async (req, res) => {
             throw new Error('This table already has an order in progress. Please wait until it is served.')
         }
 
-        const now = new Date()
-        const blockCutoff = new Date(now.getTime() + 30 * 60000)
-        const blockingBookingLink = await prisma.tableBookingTable.findFirst({
-            where: {
-                tableId: table.id,
-                booking: { status: { in: ['Upcoming', 'Active'] }, startTime: { lte: blockCutoff } },
-            },
-            include: { booking: true },
-        })
-        if (blockingBookingLink) {
-            const b = blockingBookingLink.booking
-            const endsAt = new Date(new Date(b.startTime).getTime() + b.durationMinutes * 60000)
-            if (endsAt > now) {
-                res.status(400)
-                throw new Error('This table is reserved soon and cannot take new orders right now. Please choose another table or come back later.')
-            }
+        const nextBooking = await nextBookingForWalkIn(prisma, table.id)
+        if (nextBooking?.blocked) {
+            res.status(400)
+            throw new Error('This table is reserved soon and cannot take new orders right now. Please choose another table or come back later.')
         }
     }
 

@@ -1,6 +1,6 @@
 const {
     getTables, getTable, createTable, updateTable, deleteTable, downloadTableQr, getTableByQr,
-    createBooking, getBookings, updateBooking,
+    createBooking, getBookings, updateBooking, getAvailability,
 } = require('../controllers/tableController')
 const { StaffAuth } = require('../middlewares/validateTokenHandler')
 const router = require('express').Router()
@@ -10,6 +10,7 @@ const router = require('express').Router()
 // "scan"/"bookings" never get swallowed by the :id route).
 router.get('/scan/:qrToken', getTableByQr)
 
+router.get('/availability', getAvailability)
 router.post('/bookings', createBooking)
 router.get('/bookings', StaffAuth('manageTables'), getBookings)
 router.put('/bookings/:id', StaffAuth('manageTables'), updateBooking)
