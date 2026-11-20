@@ -1,4 +1,5 @@
 const asyncHandler = require('express-async-handler')
+const { normalizePhone, phoneSearchTail } = require('../utils/phone')
 const uniqid = require('uniqid')
 const fs = require('fs')
 const path = require('path')
@@ -48,9 +49,11 @@ const PAYMENT_METHOD_TO_DB = { Cash: 'Cash', 'MoMo Pay': 'MoMoPay', 'MoMo Code':
 createOrder = asyncHandler(async (req, res) => {
     const {
         items, tableId, orderType: requestedType,
-        customerName, customerPhone, email, address, contact,
+        customerName, email, address,
         paymentMethod, callConfirmed, notes,
     } = req.body
+    const customerPhone = normalizePhone(req.body.customerPhone)
+    const contact = normalizePhone(req.body.contact)
 
     if (!Array.isArray(items) || !items.length) {
         res.status(400)
@@ -329,12 +332,20 @@ getOrders = asyncHandler(async(req,res)=>{
     const createdAtRange = periodRange(period)
     if (createdAtRange) where.createdAt = createdAtRange
     if (search) {
+        // Staff look-up for customers who lost their order number: match the
+        // code, name, email, or phone number (however it was typed).
+        const term = String(search).trim()
         where.OR = [
-            { orderCode: { contains: search } },
-            { contact: { contains: search } },
-            { customerName: { contains: search } },
-            { email: { contains: search } },
+            { orderCode: { contains: term } },
+            { contact: { contains: term } },
+            { customerPhone: { contains: term } },
+            { customerName: { contains: term } },
+            { email: { contains: term } },
         ]
+        const tail = phoneSearchTail(term)
+        if (tail) {
+            where.OR.push({ contact: { contains: tail } }, { customerPhone: { contains: tail } })
+        }
     }
 
     const include = {
