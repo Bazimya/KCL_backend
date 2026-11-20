@@ -1,4 +1,5 @@
 const asyncHandler = require('express-async-handler')
+const { notifySms, kigaliTime } = require('../utils/sms')
 const { prisma } = require('../config/dbConnection')
 const { toClientJSON } = require('../utils/transform')
 const { getPagination, buildPageResult } = require('../utils/paginate')
@@ -201,6 +202,10 @@ createBooking = asyncHandler(async (req, res) => {
         },
         include: { tables: { include: { table: true } } },
     })
+    notifySms(customerPhone,
+        `Kigali Coffee Lab: your table booking (ref B-${booking.id}) is received for ` +
+        `${kigaliTime(booking.startTime)}, ${booking.tables.map((t) => t.table.label).join(', ')}, ` +
+        `party of ${booking.partySize}. See you soon!`)
     res.status(201).json(toClientJSON(booking))
 })
 
@@ -243,6 +248,14 @@ updateBooking = asyncHandler(async (req, res) => {
         where: { id: booking.id }, data,
         include: { tables: { include: { table: true } } },
     })
+    if (data.status === 'Cancelled' && booking.status !== 'Cancelled') {
+        notifySms(booking.customerPhone,
+            `Kigali Coffee Lab: your table booking (ref B-${booking.id}) for ${kigaliTime(booking.startTime)} ` +
+            `has been cancelled. Please call us to rebook.`)
+    } else if (data.startTime && new Date(data.startTime).getTime() !== new Date(booking.startTime).getTime()) {
+        notifySms(booking.customerPhone,
+            `Kigali Coffee Lab: your table booking (ref B-${booking.id}) has moved to ${kigaliTime(updated.startTime)}.`)
+    }
     res.status(200).json(toClientJSON(updated))
 })
 

@@ -10,6 +10,7 @@ const cors = require('cors')
 const helmet = require('helmet')
 const { rateLimit } = require('express-rate-limit')
 const { uploadsDir } = require('./config/uploads')
+const { smsStartupNote } = require('./utils/sms')
 const app = express()
 
 const isProduction = process.env.NODE_ENV === 'production'
@@ -112,6 +113,7 @@ app.use(errorHandler)
 
 const start = async () => {
     validateRuntimeConfig()
+    smsStartupNote()
     await connectDb()
     return new Promise((resolve, reject) => {
         const server = app.listen(port, () => {

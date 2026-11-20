@@ -26,6 +26,7 @@ getPublicSettings = asyncHandler(async(req,res)=>{
         address: settings.address,
         momoPayNumber: settings.momoPayNumber,
         momoCode: settings.momoCode,
+        deliveryFee: settings.deliveryFee,
         payments: paymentsShape(settings),
     }))
 })
@@ -47,9 +48,17 @@ updateSettings = asyncHandler(async(req,res)=>{
         Object.assign(body, body.payments)
         delete body.payments
     }
-    const allowed = ['siteName','tagline','phone','whatsapp','address','cashEnabled','momoPayEnabled','momoCodeEnabled','momoPayNumber','momoCode']
+    const allowed = ['siteName','tagline','phone','whatsapp','address','cashEnabled','momoPayEnabled','momoCodeEnabled','momoPayNumber','momoCode','deliveryFee']
     const data = {}
     for (const key of allowed) if (body[key] !== undefined) data[key] = body[key]
+    if (data.deliveryFee !== undefined) {
+        const fee = Number(data.deliveryFee)
+        if (!Number.isFinite(fee) || fee < 0) {
+            res.status(400)
+            throw new Error('Delivery fee must be a number of 0 or more')
+        }
+        data.deliveryFee = fee
+    }
 
     const updated = await prisma.settings.update({ where: { id: settings.id }, data })
     res.status(200).json(toClientJSON({

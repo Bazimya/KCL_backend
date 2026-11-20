@@ -18,11 +18,9 @@ router.get('/', getTables)
 router.get('/:id', getTable)
 router.get('/:id/qr', StaffAuth('manageTables'), downloadTableQr)
 
-// Public - both Admin/Manager AND a customer mid-checkout can add a table
-// (e.g. the shop has more physical tables than the app knows about yet).
-// Editing/removing an existing table stays staff-only, to stop a customer
-// from tampering with tables already in use.
-router.post('/', createTable)
+// Staff only (manageTables). Customers pick their table by scanning its QR
+// sticker, so they never need to create one.
+router.post('/', StaffAuth('manageTables'), createTable)
 router.put('/:id', StaffAuth('manageTables'), updateTable)
 router.delete('/:id', StaffAuth('manageTables'), deleteTable)
 

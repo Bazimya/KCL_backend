@@ -387,6 +387,8 @@ model Settings {
   momoCodeEnabled Boolean  @default(true)
   momoPayNumber   String   @default("073 000 0000")
   momoCode        String   @default("")
+  // Added to coffee-machine delivery orders at checkout (RWF). 0 = free.
+  deliveryFee     Float    @default(0)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

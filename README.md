@@ -97,6 +97,10 @@ Requires **Node.js 20.9+** (needed by `sharp`) and a MySQL 5.7+/8 database.
    - `UPLOADS_DIR` - a **persistent** volume path (see below).
    - `PORT` - most hosts set this for you.
    - `TRUST_PROXY` (optional) - proxy hops in front of the API, default `1`.
+   - `SMS_DRIVER` - `log` (default: texts are only written to `logs/sms.log`,
+     nothing is sent) or `africastalking` with `AT_USERNAME`, `AT_API_KEY` and
+     optional `AT_SENDER_ID`. `AT_USERNAME=sandbox` uses Africa's Talking's free
+     sandbox. See "Customer text messages" below.
 3. **Migrate** before each start/release: `npm run release`
    (= `prisma migrate deploy`). Never run `prisma migrate dev` in production.
 4. **Start:** `npm start` (= `node server.js`; there is no build step).
@@ -129,6 +133,26 @@ empty database; if you are migrating a database that already has rows in
 
 The frontend is built separately - set `VITE_API_URL` (and optionally
 `VITE_UPLOADS_URL`) to this API's public origin; see the frontend README.
+
+## Customer text messages (SMS)
+
+Customers get a text when:
+
+| Event | Text |
+|---|---|
+| Order placed | order number + tracking link |
+| Order **Ready for Pickup**, **Dispatched**, **Delivered**, or **Cancelled** by staff | status update |
+| Table booking made / cancelled by staff / moved to a new time | confirmation with reference `B-<id>` |
+| Training application received / **Approved** / **Rejected** | confirmation and decision |
+
+All texts go through `utils/sms.js`. With `SMS_DRIVER=log` (the default) nothing
+is sent: each text is printed in the server console and appended to
+`logs/sms.log`, so you can check the wording during development. Switch to
+`SMS_DRIVER=africastalking` once you have an account. A failed text never
+fails the order, booking or application that triggered it.
+
+Delivery orders also carry the **delivery fee** set by the admin in
+Settings → Payment (0 = free). The server adds it to the order total.
 
 ## Seed demo data (coffee machines, menu items, tables, admin/manager users)
 

@@ -3,16 +3,10 @@ const sharp = require('sharp')
 const path = require('path')
 
 // The public, customer-facing URL a printed table sticker points to - the
-// frontend app's own origin, not this API. PUBLIC_APP_URL wins if set;
-// otherwise the FIRST origin in FRONTEND_URL is used (FRONTEND_URL may be a
-// comma-separated CORS list, which is not a valid URL on its own).
-const FRONTEND_URL = (
-    process.env.PUBLIC_APP_URL ||
-    (process.env.FRONTEND_URL || '').split(',').map((v) => v.trim()).find(Boolean) ||
-    'https://kigalicoffeelab.com'
-).replace(/\/+$/, '')
+// frontend app's own origin, not this API (see utils/appUrl.js).
+const { publicAppUrl } = require('./appUrl')
 
-const tableScanUrl = (qrToken) => `${FRONTEND_URL}/t/${qrToken}`
+const tableScanUrl = (qrToken) => `${publicAppUrl()}/t/${qrToken}`
 
 const LOGO_PATH = path.join(__dirname, '..', 'assets', 'kcl-logo.jpg')
 

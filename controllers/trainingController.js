@@ -1,4 +1,5 @@
 const asyncHandler = require('express-async-handler')
+const { notifySms } = require('../utils/sms')
 const { prisma } = require('../config/dbConnection')
 const { toClientJSON } = require('../utils/transform')
 const { getPagination, buildPageResult } = require('../utils/paginate')
@@ -74,6 +75,9 @@ applyToTraining = asyncHandler(async (req, res) => {
     const application = await prisma.trainingApplication.create({
         data: { fullName, gender, phone, email, province, district, sector, cell, village, sessionId: session.id },
     })
+    notifySms(phone,
+        `Kigali Coffee Lab: thank you ${fullName.split(' ')[0]}, we received your application for ` +
+        `"${session.title}". We will text you once it has been reviewed.`)
     res.status(201).json(toClientJSON(application))
 })
 
@@ -199,8 +203,17 @@ updateApplicationStatus = asyncHandler(async (req, res) => {
     const data = {}
     if (status !== undefined) data.status = status
     if (notes !== undefined) data.notes = notes
-    const updated = await prisma.trainingApplication.update({ where: { id: application.id }, data })
-    res.status(200).json(toClientJSON(updated))
+    const updated = await prisma.trainingApplication.update({
+        where: { id: application.id }, data, include: { session: true },
+    })
+    if (data.status && data.status !== application.status && ['Approved', 'Rejected'].includes(data.status)) {
+        const course = updated.session?.title || 'the training'
+        notifySms(application.phone, data.status === 'Approved'
+            ? `Kigali Coffee Lab: good news! Your application for "${course}" is approved. We will contact you with the start details.`
+            : `Kigali Coffee Lab: thank you for applying to "${course}". Unfortunately we cannot offer you a place this time.`)
+    }
+    const { session: _session, ...plain } = updated
+    res.status(200).json(toClientJSON(plain))
 })
 
 module.exports = {

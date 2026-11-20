@@ -1,4 +1,6 @@
 const asyncHandler = require('express-async-handler')
+const { notifySms } = require('../utils/sms')
+const { publicAppUrl } = require('../utils/appUrl')
 const { normalizePhone, phoneSearchTail } = require('../utils/phone')
 const uniqid = require('uniqid')
 const fs = require('fs')
@@ -41,6 +43,35 @@ const periodRange = (period) => {
 // Code") - Prisma's Client, because of the @map on those enum values in
 // schema.prisma, needs the un-mapped identifiers instead when writing.
 const PAYMENT_METHOD_TO_DB = { Cash: 'Cash', 'MoMo Pay': 'MoMoPay', 'MoMo Code': 'MoMoCode' }
+
+// Machine stock moves with an order's life: placing an order takes stock
+// (see createOrder); cancelling or deleting it gives the stock back
+// ('release'); reopening a cancelled order takes it again ('reserve').
+const adjustMachineStock = async (orderId, direction) => {
+    try {
+        const lines = await prisma.orderItem.findMany({ where: { orderId, itemType: 'machine', productId: { not: null } } })
+        const sign = direction === 'release' ? 1 : -1
+        for (const line of lines) {
+            const product = await prisma.product.findUnique({ where: { id: line.productId } })
+            if (!product) continue
+            await prisma.product.update({
+                where: { id: product.id },
+                data: {
+                    quantity: Math.max(0, product.quantity + sign * line.quantity),
+                    sold: Math.max(0, product.sold - sign * line.quantity),
+                },
+            })
+        }
+    } catch (e) { console.error('[stock] could not adjust stock for order', orderId, e.message) }
+}
+
+// Texts sent to the customer when staff move an order to these stages.
+const STATUS_SMS = {
+    'Ready for Pickup': (code) => `your order ${code} is ready. Please collect it at the counter.`,
+    'Dispatched': (code) => `your order ${code} is on its way to you.`,
+    'Delivered': (code) => `your order ${code} has been delivered. Thank you!`,
+    'Cancelled': (code) => `your order ${code} was cancelled. Please contact us if this is unexpected.`,
+}
 
 // Guest-friendly checkout: no login/registration required. The client sends
 // the items it wants directly (itemType 'menu' = coffee/food, 'machine' =
@@ -157,7 +188,14 @@ createOrder = asyncHandler(async (req, res) => {
         throw new Error('A delivery address is required for a coffee machine order')
     }
 
-    const total = resolvedItems.reduce((sum, i) => sum + i.price * i.quantity, 0)
+    const itemsTotal = resolvedItems.reduce((sum, i) => sum + i.price * i.quantity, 0)
+    // Delivery fee comes from admin Settings (never trusted from the client).
+    let deliveryFee = 0
+    if (orderType === 'delivery') {
+        const settings = await prisma.settings.findFirst()
+        deliveryFee = settings?.deliveryFee || 0
+    }
+    const total = itemsTotal + deliveryFee
 
     // orderCode is sequential and derived from the order's own id (see
     // utils/orderCode.js), which Prisma only assigns once the row actually
@@ -220,6 +258,10 @@ createOrder = asyncHandler(async (req, res) => {
         } catch (e) { /* non-fatal */ }
     }
 
+    notifySms(customerPhone || contact,
+        `Kigali Coffee Lab: we received your order ${order.orderCode}. ` +
+        `Keep this number to track it at ${publicAppUrl()}/track`)
+
     res.status(201).json(toClientJSON({ message: 'Success', order }))
 })
 
@@ -249,6 +291,7 @@ cancelByCode = asyncHandler(async (req, res) => {
         where: { id: order.id },
         data: { orderStatus: 'Cancelled', paymentStatus: 'Cancelled' },
     })
+    await adjustMachineStock(order.id, 'release')
     res.status(200).json(toClientJSON(updated))
 })
 
@@ -399,12 +442,16 @@ cancelOrder = asyncHandler(async(req,res)=>{
         res.status(400); throw new Error('This order can no longer be cancelled')
     }
     const updated = await prisma.order.update({ where: { id: order.id }, data: { orderStatus: 'Cancelled' } })
+    await adjustMachineStock(order.id, 'release')
     res.json(toClientJSON(updated))
 })
 
 deleteOrder = asyncHandler(async(req,res)=>{
     const order = await prisma.order.findUnique({ where: { id: Number(req.params.id) } })
-    if (order) await prisma.order.delete({ where: { id: order.id } })
+    if (order) {
+        if (order.orderStatus !== 'Cancelled') await adjustMachineStock(order.id, 'release')
+        await prisma.order.delete({ where: { id: order.id } })
+    }
     res.json({ msg: 'successfully deleted', userOrderAvailable: toClientJSON(order) })
 })
 
@@ -439,6 +486,16 @@ updateOrderStatus = asyncHandler(async (req, res) => {
         where: { id: order.id },
         data,
     })
+
+    // Stock follows cancellation: cancelling gives machines back to the
+    // shop; un-cancelling (staff reopening an order) takes them again.
+    if (status === 'Cancelled' && order.orderStatus !== 'Cancelled') await adjustMachineStock(order.id, 'release')
+    if (status !== 'Cancelled' && order.orderStatus === 'Cancelled') await adjustMachineStock(order.id, 'reserve')
+
+    const smsText = STATUS_SMS[status]
+    if (smsText && status !== order.orderStatus) {
+        notifySms(order.customerPhone || order.contact, `Kigali Coffee Lab: ${smsText(order.orderCode)}`)
+    }
 
     await prisma.notification.create({
         data: {

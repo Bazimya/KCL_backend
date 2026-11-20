@@ -33,7 +33,9 @@ getDashboardStats = asyncHandler(async (req, res) => {
 
     const revenueAgg = await prisma.order.aggregate({
         _sum: { paymentAmount: true },
-        where: { orderStatus: { not: 'Cancelled' } },
+        // Only finished orders count as revenue - an order still at "Order
+        // Placed" may never be paid or collected.
+        where: { orderStatus: { in: ['Served', 'Delivered'] } },
     })
     const totalRevenue = revenueAgg._sum.paymentAmount || 0
 
