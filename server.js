@@ -116,8 +116,12 @@ const start = async () => {
     smsStartupNote()
     await connectDb()
     return new Promise((resolve, reject) => {
-        const server = app.listen(port, () => {
-            console.log(`Listening to ${port}`)
+        // HOST lets a server bind to one interface only (e.g. the Docker
+        // bridge 172.17.0.1, so only a reverse proxy can reach the API).
+        // Unset = all interfaces, as before.
+        const host = process.env.HOST || undefined
+        const server = app.listen(port, host, () => {
+            console.log(`Listening on ${host || '*'}:${port}`)
             resolve(server)
         })
         server.once('error', reject)

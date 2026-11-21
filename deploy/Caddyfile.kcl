@@ -1,0 +1,28 @@
+# Kigali Coffee Lab site block for a Caddy that already serves other sites
+# (Caddy in Docker, reaching host processes via host.docker.internal).
+# Append to the existing Caddyfile, then: docker exec <caddy> caddy reload --config /etc/caddy/Caddyfile
+# Caddy obtains and renews the HTTPS certificates automatically.
+
+www.kigalicoffeelab.online {
+    redir https://kigalicoffeelab.online{uri} permanent
+}
+
+kigalicoffeelab.online {
+    encode gzip
+
+    # API: strip the /api prefix (the backend's routes live at /orders, /tables, ...)
+    handle_path /api/* {
+        reverse_proxy host.docker.internal:5050
+    }
+
+    # Uploaded menu/product/staff photos are served by the backend
+    @uploads path /uploads/*
+    handle @uploads {
+        reverse_proxy host.docker.internal:5050
+    }
+
+    # Everything else: the React app (with SPA fallback) from kcl-web
+    handle {
+        reverse_proxy host.docker.internal:5051
+    }
+}
